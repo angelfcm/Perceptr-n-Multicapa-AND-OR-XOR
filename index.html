@@ -1,0 +1,564 @@
+<!DOCTYPE>
+<html>
+<head>
+    <meta charset="utf8" />
+    <link rel="stylesheet" href="bootstrap.min.css"/> 
+    <script>
+
+var TipoCompuerta = {AND: 0, OR: 1, XOR: 2};
+var canvas = null;
+var pixelesUnidadX = 60;
+var pixelesUnidadY = 60;
+var puntoOrigen = {x: 0, y: 0};
+
+window.onload = init;
+
+function init()
+{
+    pesoInicial1Input = document.getElementById("pesoInicial1Input");
+    canvas = document.getElementById("canvas");
+    puntoOrigen.x = parseInt(canvas.width / 2);
+	puntoOrigen.y = parseInt(canvas.height / 2);
+    
+    DibujarPlano();
+}
+
+function IniciarProcesoPerceptron()
+{
+    var ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    ctx.rotate(0);
+    DibujarPlano();
+
+    DibujarPunto(ctx, [0, 0]);
+    DibujarPunto(ctx, [0, 1]);
+    DibujarPunto(ctx, [1, 0]);
+    DibujarPunto(ctx, [1, 1]);
+
+    var tablaVerdad = [
+            [0, 0], [0, 1], [1, 0], [1, 1]
+        ];
+    var neuronaOR = new Neurona(
+        TipoCompuerta.OR, 
+        2, 
+        tablaVerdad,
+        parseFloat(document.getElementById("umbralInput_OR").value),
+        parseFloat(document.getElementById("razonAprendizajeInput_OR").value)
+    );
+    var neuronaAND = new Neurona(
+        TipoCompuerta.AND, 
+        2, 
+        tablaVerdad,
+        parseFloat(document.getElementById("umbralInput_AND").value),
+        parseFloat(document.getElementById("razonAprendizajeInput_AND").value)
+    );
+
+    neuronaOR.Entrenar(
+        [   
+            parseFloat(document.getElementById("pesoInicial1Input_OR").value), 
+            parseFloat(document.getElementById("pesoInicial2Input_OR").value)
+        ],
+        document.getElementById("tabla_OR"));
+
+    neuronaAND.Entrenar(
+        [   
+            parseFloat(document.getElementById("pesoInicial1Input_AND").value), 
+            parseFloat(document.getElementById("pesoInicial2Input_AND").value)
+        ],
+        document.getElementById("tabla_AND"));
+
+    var neuronaXOR = new Neurona(
+        TipoCompuerta.XOR, 
+        2, 
+        [[neuronaOR.ObtenerSalidaAxon(), neuronaAND.ObtenerSalidaAxon()]],
+        parseFloat(document.getElementById("umbralInput_XOR").value),
+        parseFloat(document.getElementById("razonAprendizajeInput_XOR").value)
+    );
+
+    neuronaXOR.Entrenar(
+        [   
+            parseFloat(document.getElementById("pesoInicial1Input_XOR").value), 
+            parseFloat(document.getElementById("pesoInicial2Input_XOR").value)
+        ],
+        document.getElementById("tabla_XOR"));
+}
+
+function Neurona(compuerta, numeroEntradas, tablaVerdad, umbralInicial, razonAprendizaje)
+{
+    if (compuerta != TipoCompuerta.AND && compuerta != TipoCompuerta.OR && compuerta != TipoCompuerta.XOR)
+        throw "La compuerta indicada no existe para inicialización de la Neurona";
+
+    if (isNaN(numeroEntradas) || numeroEntradas < 2)
+        throw "El número de entradas deben ser al menos 2.";
+
+    if (tablaVerdad == null || tablaVerdad.length < 1)
+        throw "La tabla de verdad debe ser una matriz con al menos una fila y " + numeroEntradas + " columnas";
+
+    if (typeof umbralInicial != "number")
+        throw "El umbral debe ser de tipo numérico";
+
+    if (typeof razonAprendizaje != "number")
+        throw "La razón de aprendizaje debe ser de tipo numérico.";
+
+    var salidaAxon = 0;
+    this.ObtenerSalidaAxon = function()
+    {
+        return salidaAxon;
+    };
+
+    this.Entrenar = 
+        function(pesosIniciales, tablaResultados)
+        { 
+            if (!(pesosIniciales instanceof Array) || pesosIniciales.length != numeroEntradas)
+                throw "Los pesos deben estar contenidos en un Array numérico de longitud " + numeroEntradas;
+
+            if (tablaResultados != null && tablaResultados.nodeName != "TABLE")
+                throw "El objeto de salida debe ser una tabla";
+
+            var entradas = new Array(numeroEntradas);
+            var pesosActuales = new Array(numeroEntradas);
+            var deltaPesos = new Array(numeroEntradas);
+            var epoca = 1;
+            var umbralActual = umbralInicial;
+            var deltaUmbral = 0;
+            var a = 0;
+            var t = 0;
+            var y = 0;
+            var factorRazon = 0;
+
+            var contadorComparacion = 0;
+            var entradasActuales = new Array(numeroEntradas);
+
+            for(var i = 0; i < numeroEntradas; i++)
+            {
+                entradas[i] = 0;
+                pesosActuales[i] = pesosIniciales[i];
+                deltaPesos[i] = 0;
+
+                entradasActuales[i] = 0;
+            }
+
+            var thPesos = "";
+            var thEntradas = "";
+            var thDeltaPesos = "";
+
+            for(var i = 0; i < numeroEntradas; i++)
+            {
+                thPesos +=  "<th>w"+(i+1)+"</th>";
+                thEntradas += "<th>x"+(i+1)+"</th>";
+                thDeltaPesos += "<th>Δw"+(i+1)+"</th>";
+            }
+
+            if (tablaResultados != null)
+                tablaResultados.innerHTML = "<thead><tr><th>Época</th>"+thPesos+"<th>θ</th>"+thEntradas+"<th>a</th><th>y</th><th>t</th><th>α(t-y)</th>"+thDeltaPesos+"<th>Δθ</th></tr></thead>";
+
+            while(true)
+            {
+                for(var j = 0; j < tablaVerdad.length; j++)
+                {
+                    umbralActual += deltaUmbral;
+                    a = 0;
+                    t = 0;
+
+                    for (var i = 0; i < numeroEntradas; i++)
+                    {
+                        pesosActuales[i] += deltaPesos[i];
+                        entradas[i] = tablaVerdad[j][i];
+
+                        a += entradas[i] * pesosActuales[i];
+
+                        switch(compuerta)
+                        {
+                            case TipoCompuerta.AND:
+                                if (i == 0)
+                                    t = entradas[i];
+                                else
+                                    t &= entradas[i];
+                                break;
+                            case TipoCompuerta.OR:
+                                if (i == 0)
+                                    t = entradas[i];
+                                else
+                                    t |= entradas[i];
+                                break;
+                            case TipoCompuerta.XOR:
+                                if (i > 0)
+                                {
+                                    var op = entradas[i - 1] && !entradas[i] || !entradas[i - 1] && entradas[i];
+                                    if (i == 1)
+                                        t = op;
+                                    else
+                                        t = t && !op || !t && op;
+                                }
+                                break;
+                        }
+                    }
+
+                    t = t ? 1 : 0;
+                    y = a >= umbralActual ? 1 : 0;
+                    factorRazon = razonAprendizaje * (t-y);
+                    deltaUmbral = factorRazon * -1;
+
+                    for (var i = 0; i < numeroEntradas; i++)
+                        deltaPesos[i] = factorRazon * entradas[i];
+                    
+                    if (y == t)
+                        contadorComparacion++;
+                    else
+                        contadorComparacion = 0;
+
+                    if (tablaResultados != null)
+                    {
+                        var tdEpoca ="";
+                        var tdPesos = "";
+                        var tdEntradas = "";
+                        var tdDeltaPesos = "";
+                        var tr = document.createElement("tr");
+
+                        if (j == 0)
+                            tdEpoca = "<td rowspan='"+tablaVerdad.length+"' class='epoca-td'>" + epoca + "</td>";
+
+                        for(var i = 0; i < numeroEntradas; i++)
+                        {
+                            tdPesos +=  "<td>" + pesosActuales[i].toFixed(2) + "</td>";
+                            tdDeltaPesos += "<td>" + deltaPesos[i].toFixed(2) + "</td>";
+                            tdEntradas += "<td>" + entradas[i] + "</td>";
+                        }
+
+                        tr.innerHTML =
+                            tdEpoca +
+                            tdPesos +
+                            "<td>" + umbralActual.toFixed(2) + "</td>" + 
+                            tdEntradas +
+                            "<td>" + a.toFixed(2) + "</td>" + 
+                            "<td>" + y + "</td>" + 
+                            "<td>" + t + "</td>" + 
+                            "<td>" + factorRazon.toFixed(2) + "</td>" + 
+                            tdDeltaPesos +
+                            "<td>" + deltaUmbral.toFixed(2) +"</td>";
+                            
+                        var tBody = tablaResultados.getElementsByTagName("tbody")[0];
+                        if (!tBody)
+                        {
+                            tBody = document.createElement("tbody");
+                            tablaResultados.appendChild(tBody);
+                        }
+
+                        tBody.appendChild(tr);
+                    }
+
+                    if (contadorComparacion == 4)
+                        break;
+                }
+
+                if (contadorComparacion == 4)
+                    break;
+
+                epoca++;
+
+                if (epoca > 1000)
+                    break;
+            }
+
+            salidaAxon = y;
+
+            var x_p1 = parseFloat(document.getElementById("x_punto1Input").value);
+            var x_p2 = parseFloat(document.getElementById("x_punto2Input").value);
+            var punto1 = [x_p1, - ( pesosActuales[0] / pesosActuales[1] ) * x_p1 + ( umbralActual / pesosActuales[1] )];
+            var punto2 = [x_p2, - ( pesosActuales[0] / pesosActuales[1] ) * x_p2 + ( umbralActual / pesosActuales[1] )];
+
+            var ctx = canvas.getContext("2d");
+
+            var leyendaRecta = "";
+            var colorRecta = "";
+
+            switch(compuerta)
+            {
+                case TipoCompuerta.AND:
+                    leyendaRecta = "Neurona AND";
+                    colorRecta = "#990000";
+                    break;
+                case TipoCompuerta.OR:
+                    leyendaRecta = "Neurona OR";
+                    colorRecta = "#009900";
+                    break;
+                case TipoCompuerta.XOR:
+                    leyendaRecta = "Neurona XOR";
+                    colorRecta = "#000099";
+                    break;
+            }
+
+            DibujarRecta(ctx, punto1, punto2, colorRecta);
+            DibujarTexto(ctx, [(punto1[0] + punto2[0]) / 2, (punto1[1] + punto2[1])/2], leyendaRecta, colorRecta);
+            DibujarPunto(ctx, punto1);
+            DibujarPunto(ctx, punto2);
+        };
+}
+
+function DibujarPunto(ctx, punto)
+{
+    ctx.save();
+    var radio = 5;
+    var punto_absoluto = [ punto[0] * pixelesUnidadX + puntoOrigen.x, -punto[1] * pixelesUnidadY + puntoOrigen.y];
+    ctx.beginPath();
+    ctx.strokeStyle = "#000000";
+    ctx.arc(punto_absoluto[0], punto_absoluto[1], radio, 0, 2 * Math.PI);
+    ctx.fillStyle = "#0000dd";
+    ctx.fill();
+    ctx.fillStyle = "#000055";
+    ctx.font = "9px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("(" + punto[0].toPrecision(2) + ", " + punto[1].toPrecision(2) + ")", punto_absoluto[0], punto_absoluto[1] - radio * 2);
+    ctx.restore();
+}
+
+function DibujarRecta(ctx, punto1, punto2, color)
+{
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.moveTo(punto1[0] * pixelesUnidadX + puntoOrigen.x, -punto1[1] * pixelesUnidadY + puntoOrigen.y);
+    ctx.lineTo(punto2[0] * pixelesUnidadX + puntoOrigen.x, -punto2[1] * pixelesUnidadY + puntoOrigen.y);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function DibujarTexto(ctx, punto, texto, color)
+{
+    var punto_absoluto = [ punto[0] * pixelesUnidadX + puntoOrigen.x, -punto[1] * pixelesUnidadY + puntoOrigen.y];
+    ctx.save();
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.font = "10px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(texto, punto_absoluto[0], punto_absoluto[1]);
+    ctx.restore();
+}
+
+function DibujarPlano()
+{
+    var ctx = canvas.getContext("2d");
+
+	ctx.save();
+	ctx.beginPath();
+	ctx.fillStyle = "#fff";
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+	ctx.restore();
+
+	// dibuja  plano cartesiano
+	ctx.save();
+	ctx.lineWidth = 1;
+	ctx.strokeStyle = "#000";
+	// abscisa
+	ctx.beginPath();
+	ctx.moveTo(0, canvas.height/2);
+	ctx.lineTo(canvas.width, canvas.height/2);
+	ctx.stroke();
+	// ordenada
+	ctx.beginPath();
+	ctx.moveTo(canvas.width/2, 0);
+	ctx.lineTo(canvas.width/2, canvas.height);
+	ctx.stroke();
+	ctx.restore();
+	// unidades en abscisas
+	ctx.save();
+	var numUnidadesAbscisa = parseInt(canvas.width / pixelesUnidadX);
+	for ( var i = 0, x = 0; x <= canvas.width; i++, x += pixelesUnidadX )
+	{
+		for ( var j = 0; j < 2; j++ )
+		{
+			var s = j == 0 ? 1: -1;
+			ctx.beginPath();
+			ctx.strokeStyle = "#000";
+			ctx.lineWidth = 1;
+			ctx.moveTo(canvas.width/2 + s*x, puntoOrigen.y - 5 - (i%5 == 0 ? 8 : 0));
+			ctx.lineTo(canvas.width/2 + s*x, puntoOrigen.y + 5 + (i%5 == 0 ? 8 : 0));
+			ctx.font = "10px calibri";
+            ctx.fillStyle = "#000000";
+			ctx.textAlign = 'center';
+			if ( i != 0)
+				ctx.fillText(s*i, canvas.width/2 + s*x, puntoOrigen.y + 22);
+			ctx.stroke();
+		}
+	}
+	ctx.restore();
+	// unidades en ordenadas
+	ctx.save();
+	var numUnidadesOrdenada = parseInt(canvas.height / pixelesUnidadY);
+	for ( var i = 0, y = 0; y <= canvas.height; i++, y += pixelesUnidadY )
+	{
+		for ( var j = 0; j < 2; j++ )
+		{
+			var s = j == 0 ? 1: -1;
+			ctx.beginPath();
+			ctx.strokeStyle = "#000";
+			ctx.lineWidth = 1;
+			ctx.moveTo(puntoOrigen.x - 5 - (i%5 == 0 ? 8 : 0), canvas.height/2 + s*y);
+			ctx.lineTo(puntoOrigen.x + 5 + (i%5 == 0 ? 8 : 0), canvas.height/2 + s*y);
+			ctx.font = "10px calibri";
+            ctx.fillStyle = "#000000";
+            ctx.textAlign = "right";
+			ctx.textBaseline = 'middle';
+			if ( i != 0 && s*i != -1 )
+				ctx.fillText(s*i, puntoOrigen.x - 28, (canvas.height/2 - s*y)-1);
+			ctx.stroke();
+		}
+	}
+	ctx.restore();
+}
+    </script>
+    <style>
+        .page-container
+        {
+            padding: 0 10px;  
+        }
+    </style>
+</head>
+<body>
+<div class="page-container">
+
+    <header class="page-header">
+        <h1>Perceptron Multicapa</h1>
+    </header>
+
+    <section class="panel panel-info">
+        <div class="panel-heading"><h3>Ajuste de Neuronas</h3></div>
+        <div class="panel-body">
+            <div class="row">
+                <div class="col-sm-4">
+                    <div class="panel panel-primary">
+                        <div class="panel-heading"><h4 style="text-align:center">Neurona OR</h4></div>
+                        <div class="panel-body">
+                            <form class="form-horizontal">
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Peso 1: </label>
+                                    <div class="col-sm-6"><input type="number" id="pesoInicial1Input_OR" value="1" class="form-control" /></div>
+                                </div> 
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Peso 2: </label>
+                                    <div class="col-sm-6"><input type="number" id="pesoInicial2Input_OR" value="1" class="form-control" /></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Umbral: </label>
+                                    <div class="col-sm-6"><input type="number" id="umbralInput_OR" step="0.1" value="0.5" class="form-control" /></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Razón de Aprendizaje: </label>
+                                    <div class="col-sm-6"><input type="number" id="razonAprendizajeInput_OR" step="0.1" value="0.25" class="form-control" /></div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="panel panel-primary">
+                        <div class="panel-heading"><h4 style="text-align:center">Neurona AND</h4></div>
+                        <div class="panel-body">
+                            <form class="form-horizontal">
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Peso 1: </label>
+                                    <div class="col-sm-6"><input type="number" id="pesoInicial1Input_AND" value="1" class="form-control" /></div>
+                                </div> 
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Peso 2: </label>
+                                    <div class="col-sm-6"><input type="number" id="pesoInicial2Input_AND" value="1" class="form-control" /></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Umbral: </label>
+                                    <div class="col-sm-6"><input type="number" id="umbralInput_AND" step="0.1" value="1.5" class="form-control" /></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Razón de Aprendizaje: </label>
+                                    <div class="col-sm-6"><input type="number" id="razonAprendizajeInput_AND" step="0.1" value="0.25" class="form-control" /></div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="panel panel-primary">
+                        <div class="panel-heading"><h4 style="text-align:center">Neurona XOR</h4></div>
+                        <div class="panel-body">
+                            <form class="form-horizontal">
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Peso 1: </label>
+                                    <div class="col-sm-6"><input type="number" id="pesoInicial1Input_XOR" value="1" class="form-control" /></div>
+                                </div> 
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Peso 2: </label>
+                                    <div class="col-sm-6"><input type="number" id="pesoInicial2Input_XOR" value="-1.5" class="form-control" /></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Umbral: </label>
+                                    <div class="col-sm-6"><input type="number" id="umbralInput_XOR" step="0.1" value="0.5" class="form-control" /></div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-sm-6 control-label">Razón de Aprendizaje: </label>
+                                    <div class="col-sm-6"><input type="number" id="razonAprendizajeInput_XOR" step="0.1" value="0.25" class="form-control" /></div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-12" style="text-align: center">
+                    <button onclick="IniciarProcesoPerceptron();" class="btn btn-primary btn-lg">Calcular</button>
+                </div>
+            </div>
+        </div>
+    </section>
+  
+    <section class="panel panel-info">
+        <div class="panel-heading"><h3>Resultados</h3></div>
+        <div class="panel-body">
+            <div class="row">
+                <div class="col-sm-6">
+                    <div class="panel panel-success">
+                        <div class="panel-heading"><h3>Tabla de resultados</h3></div>
+                        <div class="panel-body" style="overflow: auto;">
+                            <h4>Neurona OR</h4>
+                            <table id="tabla_OR" class="table table-bordered">
+                                <tr>
+                                    <th>Epoca</th><th>w1</th><th>w2</th><th>θ</th><th>x1</th><th>x2</th><th>a</th><th>y</th><th>t</th><th>α(t-y)</th><th>Δw1</th><th>Δw2</th><th>Δθ</th>
+                                </tr>
+                            </table>
+
+                            <h4>Neurona AND</h4>
+                            <table id="tabla_AND" class="table table-bordered">
+                                <tr>
+                                    <th>Epoca</th><th>w1</th><th>w2</th><th>θ</th><th>x1</th><th>x2</th><th>a</th><th>y</th><th>t</th><th>α(t-y)</th><th>Δw1</th><th>Δw2</th><th>Δθ</th>
+                                </tr>
+                            </table>
+
+                            <h4>Neurona XOR</h4>
+                            <table id="tabla_XOR" class="table table-bordered">
+                                <tr>
+                                    <th>Epoca</th><th>w1</th><th>w2</th><th>θ</th><th>x1</th><th>x2</th><th>a</th><th>y</th><th>t</th><th>α(t-y)</th><th>Δw1</th><th>Δw2</th><th>Δθ</th>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="panel panel-success">
+                        <div class="panel-heading"><h3>Gráfica</h3></div>
+                        <div class="panel-body" style="overflow: auto;">
+                            <form class="form-inline" style="text-align: center;">
+                                <div class="form-group">
+                                    <label>X1 P1: </label><input type="number" step="1" value="-1" id="x_punto1Input" class="form-control" />
+                                </div>
+                                <div class="form-group">
+                                    <label>X1 P2: </label><input type="number" step="1" value="3" id="x_punto2Input" class="form-control" />
+                                </div>
+                                <canvas id="canvas" width="540" height="540" style="margin: 10px auto; display: block; border: 1px solid #000; border-radius: 5px; box-shadow: 0 0 5px #000;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+</body>
+</html>
